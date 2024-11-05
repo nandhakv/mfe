@@ -1,12 +1,17 @@
 import React from "react";
+import { BrowserRouter } from "react-router-dom";
 import MarketingApp from "./components/MarketingApp";
+import Header from './components/Header';
 
 const App = () => {
     return (
         <>
-          <h1>Hello From Container New 3!</h1>
-          <hr/>
-          <MarketingApp/>
+        <BrowserRouter>
+            <div>
+            <Header/>
+            <MarketingApp/>
+            </div>
+          </BrowserRouter>
        </>
     );
 }
