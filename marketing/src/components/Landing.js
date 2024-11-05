@@ -128,7 +128,7 @@ export default function Album() {
                     </Typography>
                     <Typography>
                       This is a media card. You can use this section to describe
-                      the content.
+                      the content 1.
                     </Typography>
                   </CardContent>
                   <CardActions>
