@@ -7,7 +7,6 @@ const App = () => {
     return (
         <>
         <BrowserRouter>
-        <h1>Hello!</h1>
             <div>
             <Header/>
             <MarketingApp/>
