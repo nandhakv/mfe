@@ -93,6 +93,8 @@ export default function Header({ signedIn, onSignOut }) {
           </Button>
         </Toolbar>
       </AppBar>
+      <span>
+        Info
     </React.Fragment>
   );
 }
