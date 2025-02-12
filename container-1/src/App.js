@@ -13,6 +13,9 @@ const App = () => {
             <MarketingApp/>
             </div>
           </BrowserRouter>
+          <div>
+            <h1>Added Title</h1>
+          </div>
        </>
     );
 }
