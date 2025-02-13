@@ -7,12 +7,15 @@ const App = () => {
     return (
         <>
         <BrowserRouter>
-        <h1>Hello!</h1>
+        <h1>Hello</h1>
             <div>
             <Header/>
             <MarketingApp/>
             </div>
           </BrowserRouter>
+          <div>
+            <h1>Added Title</h1>
+          </div>
        </>
     );
 }
