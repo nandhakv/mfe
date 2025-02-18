@@ -1,0 +1,17 @@
+name: SonarQube Analysis
+
+on:
+  workflow_dispatch:  # Enables manual trigger via API
+
+jobs:
+  sonar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run SonarQube Analysis
+        uses: sonarsource/sonarqube-scan-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: "http://your-sonarqube-server:9000"
