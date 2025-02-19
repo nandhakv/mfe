@@ -79,7 +79,7 @@ export default function Header({ signedIn, onSignOut }) {
             component={RouterLink}
             to="/"
           >
-            App!!
+            App!
           </Typography>
           <Button
             color="primary"
@@ -93,6 +93,8 @@ export default function Header({ signedIn, onSignOut }) {
           </Button>
         </Toolbar>
       </AppBar>
+      <span>
+        Info
     </React.Fragment>
   );
 }
