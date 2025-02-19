@@ -1,7 +1,7 @@
 name: SonarQube Analysis
 
 on:
-  workflow_dispatch:  # Enables manual trigger via API
+  workflow_dispatch:  # Allows manual triggering via API or GitHub UI
 
 jobs:
   sonar:
@@ -10,8 +10,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up JDK 17  # SonarQube requires Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
         env:
           SONAR_TOKEN: "squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+        with:
+          args: >
+            -Dsonar.projectKey=mfe
+            -Dsonar.sources=.
+            -Dsonar.language=js
+            -Dsonar.exclusions=**/node_modules/**,**/dist/**
