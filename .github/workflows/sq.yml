@@ -23,7 +23,7 @@ jobs:
           SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
         with:
           args: >
-            -Dsonar.projectKey=mfe
+            -Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec
             -Dsonar.sources=.
             -Dsonar.language=js
             -Dsonar.exclusions=**/node_modules/**,**/dist/**
