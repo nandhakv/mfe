@@ -51,7 +51,7 @@ jobs:
             -Dsonar.sources=${{ env.FILES }}
             -Dsonar.scm.provider=git
 
-      - name: Get SonarQube Report & Issues
+      - name: Get SonarQube Analysis ID
         run: |
           SONAR_PROJECT_KEY="nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983"
           SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
@@ -70,34 +70,13 @@ jobs:
 
           echo "✅ Found Analysis ID: $ANALYSIS_ID"
 
-          echo "🔍 Fetching quality gate status..."
-          REPORT_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
-          echo "📄 Quality Gate Response: $REPORT_RESPONSE"
+          # Save the project_key and analysis_id to a JSON file
+          echo "{ \"project_key\": \"$SONAR_PROJECT_KEY\", \"analysis_id\": \"$ANALYSIS_ID\" }" > sonar_data.json
 
-          STATUS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.status')
-
-          if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
-            echo "❌ ERROR: Failed to get quality gate status."
-            exit 1
-          fi
-
-          echo "✅ SonarQube Status: $STATUS"
-
-          ERRORS=$(echo "$REPORT_RESPONSE" | jq -c '[.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}]')
-
-          echo "🔍 Fetching issues for Analysis ID: $ANALYSIS_ID..."
-          ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?analysisId=$ANALYSIS_ID")
-
-          echo "📄 Issues Response: $ISSUES_RESPONSE"
-
-          # Ensure valid JSON format in sonar_report.json
-          jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
-            '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
-
-      - name: Send Report to Node.js Webhook
+      - name: Send Project Key & Analysis ID to Webhook
         run: |
           WEBHOOK_URL="https://hkdk.events/l6nci7bf5quk8c"
 
           curl -X POST "$WEBHOOK_URL" \
                -H "Content-Type: application/json" \
-               -d @sonar_report.json
+               -d @sonar_data.json
