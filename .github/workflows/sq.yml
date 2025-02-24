@@ -1,7 +1,15 @@
 name: SonarQube Analysis
 
 on:
-  workflow_dispatch:  # Allows manual triggering via API or GitHub UI
+  workflow_dispatch:
+    inputs:
+      files:
+        description: "Comma-separated list of files to analyze (e.g., src/index.js, app.js)"
+        required: true
+      branch:
+        description: "Branch to run the analysis on"
+        required: true
+        default: "master"
 
 jobs:
   sonar:
@@ -9,12 +17,22 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
-      - name: Set up JDK 17  # SonarQube requires Java
+      - name: Set up JDK 17 # SonarQube requires Java
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Set FILES variable
+        run: |
+          if [ -z "${{ github.event.inputs.files }}" ]; then
+            echo "FILES=src/index.js" >> $GITHUB_ENV
+          else
+            echo "FILES=${{ github.event.inputs.files }}" >> $GITHUB_ENV
+          fi
 
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
@@ -22,8 +40,4 @@ jobs:
           SONAR_TOKEN: "squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
         with:
-          args: >
-            -Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec
-            -Dsonar.sources=.
-            -Dsonar.language=js
-            -Dsonar.exclusions=**/node_modules/**,**/dist/**
+          args: "-Dsonar.projectKey=squ_3edfa90db17cdd003e434da9a4e28de549a83595 -Dsonar.sources=${{ env.FILES }}"
