@@ -19,12 +19,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0 # Fixes shallow clone issue for SonarQube
 
       - name: Set up JDK 17 # SonarQube requires Java
         uses: actions/setup-java@v3
         with:
           java-version: "17"
           distribution: "temurin"
+
+      - name: Configure Git (Fix Missing Blame Info)
+        run: |
+          git config --global user.email "you@example.com"
+          git config --global user.name "Your Name"
 
       - name: Set FILES variable
         run: |
@@ -40,7 +46,10 @@ jobs:
           SONAR_TOKEN: "squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
         with:
-          args: "-Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec -Dsonar.sources=${{ env.FILES }}"
+          args: >
+            -Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec
+            -Dsonar.sources=${{ env.FILES }}
+            -Dsonar.scm.provider=git  # Ensure SonarQube gets blame info
 
       - name: Get SonarQube Report
         run: |
