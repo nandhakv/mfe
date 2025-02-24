@@ -10,6 +10,9 @@ on:
         description: "Branch to run the analysis on"
         required: true
         default: "master"
+      app_id:
+        description: "GitHub App ID"
+        required: true
 
 jobs:
   sonar:
@@ -19,26 +22,63 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0 # Fixes shallow clone issue for SonarQube
+          fetch-depth: 0
 
-      - name: Set up JDK 17 # SonarQube requires Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Configure Git (Fix Missing Blame Info)
+      - name: Configure Git
         run: |
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
 
-      - name: Set FILES variable
+      - name: Generate GitHub App Token
+        id: generate_token
         run: |
-          if [ -z "${{ github.event.inputs.files }}" ]; then
-            echo "FILES=src/index.js" >> $GITHUB_ENV
-          else
-            echo "FILES=${{ github.event.inputs.files }}" >> $GITHUB_ENV
+          APP_ID=${{ github.event.inputs.app_id }}
+
+          echo "Fetching installation ID for GitHub App ID: $APP_ID"
+          INSTALLATION_ID=$(curl -s -X GET "https://api.github.com/repos/${{ github.repository }}/installation" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_APP_PRIVATE_KEY }}" \
+            | jq -r '.id')
+
+          if [[ -z "$INSTALLATION_ID" || "$INSTALLATION_ID" == "null" ]]; then
+            echo "❌ ERROR: Failed to get installation ID."
+            exit 1
           fi
+
+          echo "✅ Found Installation ID: $INSTALLATION_ID"
+
+          echo "Generating JWT for GitHub App..."
+          JWT=$(node -e "const fs = require('fs'); const jwt = require('jsonwebtoken');
+            const privateKey = process.env.PRIVATE_KEY.replace(/\\n/g, '\n');
+            const appId = process.env.APP_ID;
+            const token = jwt.sign({ iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 600, iss: appId }, privateKey, { algorithm: 'RS256' });
+            console.log(token);"
+          )
+
+          echo "Requesting installation token..."
+          TOKEN_RESPONSE=$(curl -s -X POST "https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $JWT")
+
+          GITHUB_APP_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token')
+
+          if [[ -z "$GITHUB_APP_TOKEN" || "$GITHUB_APP_TOKEN" == "null" ]]; then
+            echo "❌ ERROR: Failed to generate GitHub App token."
+            exit 1
+          fi
+
+          echo "::add-mask::$GITHUB_APP_TOKEN"
+          echo "GITHUB_APP_TOKEN=$GITHUB_APP_TOKEN" >> $GITHUB_ENV
+
+        env:
+          PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
+          APP_ID: ${{ github.event.inputs.app_id }}
 
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
@@ -48,7 +88,7 @@ jobs:
         with:
           args: >
             -Dsonar.projectKey=nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983
-            -Dsonar.sources=${{ env.FILES }}
+            -Dsonar.sources=src/
             -Dsonar.scm.provider=git
 
       - name: Get SonarQube Report & Issues
@@ -90,14 +130,26 @@ jobs:
 
           echo "📄 Issues Response: $ISSUES_RESPONSE"
 
-          # Ensure valid JSON format in sonar_report.json
           jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
             '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
 
-      - name: Send Report to Node.js Webhook
+      - name: Post SonarQube Report as GitHub Issue
         run: |
-          WEBHOOK_URL="https://hkdk.events/l6nci7bf5quk8c"
+          REPO=${{ github.repository }}
+          TITLE="SonarQube Report for ${{ github.event.inputs.branch }}"
+          BODY=$(jq -r '. | tojson' sonar_report.json)
 
-          curl -X POST "$WEBHOOK_URL" \
-               -H "Content-Type: application/json" \
-               -d @sonar_report.json
+          echo "Creating GitHub issue with SonarQube report..."
+          RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$REPO/issues" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_APP_TOKEN" \
+            -d "{\"title\": \"$TITLE\", \"body\": \"\`\`\`json\n$BODY\n\`\`\`\"}")
+
+          ISSUE_URL=$(echo "$RESPONSE" | jq -r '.html_url')
+
+          if [[ -z "$ISSUE_URL" || "$ISSUE_URL" == "null" ]]; then
+            echo "❌ ERROR: Failed to create issue."
+            exit 1
+          fi
+
+          echo "✅ SonarQube Report posted: $ISSUE_URL"
