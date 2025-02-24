@@ -40,4 +40,41 @@ jobs:
           SONAR_TOKEN: "squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
         with:
-          args: "-Dsonar.projectKey=squ_3edfa90db17cdd003e434da9a4e28de549a83595 -Dsonar.sources=${{ env.FILES }}"
+          args: "-Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec -Dsonar.sources=${{ env.FILES }}"
+
+      - name: Get SonarQube Analysis ID
+        run: |
+          SONAR_PROJECT_KEY="nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec"
+          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+
+          # Fetch the latest analysis task
+          TASK_ID=$(curl -s -u $SONAR_TOKEN: \
+            "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY" | jq -r '.current.id')
+
+          echo "TASK_ID=$TASK_ID" >> $GITHUB_ENV
+
+      - name: Fetch SonarQube Report
+        run: |
+          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+          REPORT_URL="$SONAR_HOST/api/qualitygates/project_status?analysisId=${{ env.TASK_ID }}"
+
+          # Get the report
+          REPORT=$(curl -s -u $SONAR_TOKEN: "$REPORT_URL")
+
+          # Extract key information (status, errors, warnings)
+          STATUS=$(echo "$REPORT" | jq -r '.projectStatus.status')
+          ERRORS=$(echo "$REPORT" | jq -r '.projectStatus.conditions[] | select(.status=="ERROR") | .metricKey')
+
+          echo "SonarQube Analysis Status: $STATUS"
+          echo "Errors: $ERRORS"
+
+          # Save report to a file
+          echo "{ \"status\": \"$STATUS\", \"errors\": \"$ERRORS\" }" > sonar_report.json
+
+      - name: Send Report to Node.js Webhook
+        run: |
+          WEBHOOK_URL="https://hkdk.events/l6nci7bf5quk8c"
+
+          curl -X POST "$WEBHOOK_URL" \
+               -H "Content-Type: application/json" \
+               -d @sonar_report.json
