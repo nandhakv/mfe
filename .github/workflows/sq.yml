@@ -44,7 +44,7 @@ jobs:
 
       - name: Get SonarQube Report
         run: |
-          SONAR_PROJECT_KEY="my_project_key"
+          SONAR_PROJECT_KEY="nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec"
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
 
           echo "🔍 Fetching analysis ID..."
