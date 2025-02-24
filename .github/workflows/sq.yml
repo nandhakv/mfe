@@ -42,34 +42,44 @@ jobs:
         with:
           args: "-Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec -Dsonar.sources=${{ env.FILES }}"
 
-      - name: Get SonarQube Analysis ID
+      - name: Get SonarQube Report
         run: |
-          SONAR_PROJECT_KEY="nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec"
+          SONAR_PROJECT_KEY="my_project_key"
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
 
-          # Fetch the latest analysis task
-          TASK_ID=$(curl -s -u $SONAR_TOKEN: \
-            "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY" | jq -r '.current.id')
+          echo "🔍 Fetching analysis ID..."
 
-          echo "TASK_ID=$TASK_ID" >> $GITHUB_ENV
+          ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
 
-      - name: Fetch SonarQube Report
-        run: |
-          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
-          REPORT_URL="$SONAR_HOST/api/qualitygates/project_status?analysisId=${{ env.TASK_ID }}"
+          echo "📄 Analysis Response: $ANALYSIS_RESPONSE"
 
-          # Get the report
-          REPORT=$(curl -s -u $SONAR_TOKEN: "$REPORT_URL")
+          ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
 
-          # Extract key information (status, errors, warnings)
-          STATUS=$(echo "$REPORT" | jq -r '.projectStatus.status')
-          ERRORS=$(echo "$REPORT" | jq -r '.projectStatus.conditions[] | select(.status=="ERROR") | .metricKey')
+          if [[ -z "$ANALYSIS_ID" || "$ANALYSIS_ID" == "null" ]]; then
+            echo "❌ ERROR: Failed to get analysis ID."
+            exit 1
+          fi
 
-          echo "SonarQube Analysis Status: $STATUS"
-          echo "Errors: $ERRORS"
+          echo "✅ Found Analysis ID: $ANALYSIS_ID"
 
-          # Save report to a file
-          echo "{ \"status\": \"$STATUS\", \"errors\": \"$ERRORS\" }" > sonar_report.json
+          echo "🔍 Fetching quality gate status..."
+
+          REPORT_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+
+          echo "📄 Quality Gate Response: $REPORT_RESPONSE"
+
+          STATUS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.status')
+
+          if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
+            echo "❌ ERROR: Failed to get quality gate status."
+            exit 1
+          fi
+
+          echo "✅ SonarQube Status: $STATUS"
+
+          ERRORS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}')
+
+          echo "{ \"status\": \"$STATUS\", \"errors\": $ERRORS }" > sonar_report.json
 
       - name: Send Report to Node.js Webhook
         run: |
