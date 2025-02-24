@@ -58,11 +58,9 @@ jobs:
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
 
           echo "🔍 Fetching analysis ID..."
-
           ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
 
           echo "📄 Analysis Response: $ANALYSIS_RESPONSE"
-
           ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
 
           if [[ -z "$ANALYSIS_ID" || "$ANALYSIS_ID" == "null" ]]; then
@@ -73,9 +71,7 @@ jobs:
           echo "✅ Found Analysis ID: $ANALYSIS_ID"
 
           echo "🔍 Fetching quality gate status..."
-
           REPORT_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
-
           echo "📄 Quality Gate Response: $REPORT_RESPONSE"
 
           STATUS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.status')
@@ -87,15 +83,16 @@ jobs:
 
           echo "✅ SonarQube Status: $STATUS"
 
-          ERRORS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}')
+          ERRORS=$(echo "$REPORT_RESPONSE" | jq -c '[.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}]')
 
           echo "🔍 Fetching issues for Analysis ID: $ANALYSIS_ID..."
-
           ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?analysisId=$ANALYSIS_ID")
 
           echo "📄 Issues Response: $ISSUES_RESPONSE"
 
-          echo "{ \"status\": \"$STATUS\", \"errors\": $ERRORS, \"issues\": $ISSUES_RESPONSE }" > sonar_report.json
+          # Ensure valid JSON format in sonar_report.json
+          jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
+            '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
 
       - name: Send Report to Node.js Webhook
         run: |
