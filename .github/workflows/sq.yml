@@ -49,7 +49,7 @@ jobs:
           args: >
             -Dsonar.projectKey=nandhakv_mfe_ae2fcefe-522f-479b-9d82-b2975807aaec
             -Dsonar.sources=${{ env.FILES }}
-            -Dsonar.scm.provider=git  # Ensure SonarQube gets blame info
+            -Dsonar.scm.provider=git
 
       - name: Get SonarQube Report
         run: |
