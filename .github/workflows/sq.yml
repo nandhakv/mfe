@@ -10,6 +10,9 @@ on:
         description: "Branch to run the analysis on"
         required: true
         default: "master"
+      github_token:
+        description: "GitHub Token from triggering request"
+        required: true
       app_id:
         description: "GitHub App ID"
         required: true
@@ -35,51 +38,19 @@ jobs:
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
 
-      - name: Install Dependencies
-        run: npm install jsonwebtoken
+      - name: Mask GitHub Token
+        run: echo "::add-mask::${{ github.event.inputs.github_token }}"
 
-      - name: Generate GitHub App Token
-        id: generate_token
+      - name: Send GitHub Token to GitHub App Webhook
         run: |
-          APP_ID=${{ github.event.inputs.app_id }}
-
-          echo "Fetching installation ID for GitHub App ID: $APP_ID"
-          INSTALLATION_ID=$(curl -s -X GET "https://api.github.com/app/installations" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_APP_PRIVATE_KEY }}" | jq -r ".[] | select(.account.login==\"nandhakv\").id")
-
-          if [[ -z "$INSTALLATION_ID" || "$INSTALLATION_ID" == "null" ]]; then
-            echo "❌ ERROR: Failed to get installation ID."
-            exit 1
-          fi
-
-          echo "✅ Found Installation ID: $INSTALLATION_ID"
-
-          echo "Generating JWT for GitHub App..."
-          JWT=$(node -e "const fs = require('fs'); const jwt = require('jsonwebtoken');
-            const privateKey = process.env.PRIVATE_KEY.replace(/\\n/g, '\n');
-            const appId = process.env.APP_ID;
-            const token = jwt.sign({ iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 600, iss: appId }, privateKey, { algorithm: 'RS256' });
-            console.log(token);"
-          )
-
-          echo "Requesting installation token..."
-          TOKEN_RESPONSE=$(curl -s -X POST "https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $JWT")
-
-          GITHUB_APP_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token')
-
-          if [[ -z "$GITHUB_APP_TOKEN" || "$GITHUB_APP_TOKEN" == "null" ]]; then
-            echo "❌ ERROR: Failed to generate GitHub App token."
-            exit 1
-          fi
-
-          echo "::add-mask::$GITHUB_APP_TOKEN"
-          echo "GITHUB_APP_TOKEN=$GITHUB_APP_TOKEN" >> $GITHUB_ENV
-        env:
-          PRIVATE_KEY: ${{ secrets.GITHUB_APP_PRIVATE_KEY }}
-          APP_ID: ${{ github.event.inputs.app_id }}
+          curl -X POST "https://your-github-app-webhook-url.com" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ github.event.inputs.github_token }}" \
+            -d '{
+              "repository": "${{ github.repository }}",
+              "branch": "${{ github.event.inputs.branch }}",
+              "github_token": "${{ github.event.inputs.github_token }}"
+            }'
 
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
@@ -143,7 +114,7 @@ jobs:
           echo "Creating GitHub issue with SonarQube report..."
           RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$REPO/issues" \
             -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_APP_TOKEN" \
+            -H "Authorization: Bearer ${{ github.event.inputs.github_token }}" \
             -d "{\"title\": \"$TITLE\", \"body\": \"\`\`\`json\n$BODY\n\`\`\`\"}")
 
           ISSUE_URL=$(echo "$RESPONSE" | jq -r '.html_url')
