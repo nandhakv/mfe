@@ -122,12 +122,25 @@ jobs:
 
           echo "GitHub Check Run Response: $RESPONSE"
 
-      - name: Delete All SonarQube Analysis
+      - name: Delete All SonarQube Analyses
         run: |
           SONAR_PROJECT_KEY="nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983"
           SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
 
-          echo "🗑️ Deleting all analyses for project: $SONAR_PROJECT_KEY..."
-          DELETE_RESPONSE=$(curl -s -X POST -u $SONAR_TOKEN: "$SONAR_HOST/api/project_analyses/delete?project=$SONAR_PROJECT_KEY")
-          echo "✅ All project analyses deleted!"
+          echo "🔍 Fetching all past analysis IDs for project: $SONAR_PROJECT_KEY..."
+          ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/project_analyses/search?project=$SONAR_PROJECT_KEY")
+          ANALYSIS_IDS=$(echo "$ANALYSIS_RESPONSE" | jq -r '.analyses[].key')
+
+          if [[ -z "$ANALYSIS_IDS" ]]; then
+            echo "✅ No previous analyses found to delete."
+            exit 0
+          fi
+
+          for ANALYSIS_ID in $ANALYSIS_IDS; do
+            echo "🗑️ Deleting analysis ID: $ANALYSIS_ID..."
+            DELETE_RESPONSE=$(curl -s -X POST -u $SONAR_TOKEN: "$SONAR_HOST/api/project_analyses/delete?analysis=$ANALYSIS_ID")
+            echo "✅ Deleted analysis ID: $ANALYSIS_ID"
+          done
+
+          echo "✅ All project analyses deleted successfully!"
