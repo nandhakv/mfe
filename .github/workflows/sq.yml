@@ -149,55 +149,8 @@ jobs:
 
           echo "GitHub Check Run Response: $RESPONSE"
 
-      - name: Delete SonarQube Project
-        run: |
-          SONAR_PROJECT_KEY="${{ env.SONAR_PROJECT_KEY }}"
-          SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
-          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
-
-          echo "🗑️ Deleting SonarQube project: $SONAR_PROJECT_KEY..."
-
-          # Verify the project exists before trying to delete
-          PROJECT_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/projects/search?projects=$SONAR_PROJECT_KEY")
-          PROJECT_EXISTS=$(echo "$PROJECT_RESPONSE" | jq -r '.components | length')
-
-          if [[ "$PROJECT_EXISTS" -eq 0 ]]; then
-            echo "⚠️ WARNING: SonarQube project '$SONAR_PROJECT_KEY' does not exist. Skipping deletion."
-            exit 0
-          fi
-
-          # Check if the project has active background tasks
-          TASKS_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/ce/activity?component=$SONAR_PROJECT_KEY")
-          PENDING_TASKS=$(echo "$TASKS_RESPONSE" | jq -r '[.tasks[] | select(.status=="PENDING" or .status=="IN_PROGRESS")] | length')
-
-          if [[ "$PENDING_TASKS" -gt 0 ]]; then
-            echo "⏳ SonarQube project has active background tasks. Waiting for completion..."
-            for i in {1..10}; do
-              TASKS_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/ce/activity?component=$SONAR_PROJECT_KEY")
-              PENDING_TASKS=$(echo "$TASKS_RESPONSE" | jq -r '[.tasks[] | select(.status=="PENDING" or .status=="IN_PROGRESS")] | length')
-
-              if [[ "$PENDING_TASKS" -eq 0 ]]; then
-                echo "✅ All background tasks completed. Proceeding with deletion."
-                break
-              fi
-
-              echo "⏳ Tasks still running. Retrying in 10 seconds..."
-              sleep 10
-            done
-          fi
-
-          # Delete the project
-          DELETE_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST -u "$SONAR_TOKEN:" "$SONAR_HOST/api/projects/delete?project=$SONAR_PROJECT_KEY")
-
-          if [[ "$DELETE_RESPONSE" -eq 204 ]]; then
-            echo "✅ SonarQube project deleted successfully!"
-          else
-            echo "❌ ERROR: Failed to delete SonarQube project. HTTP Response: $DELETE_RESPONSE"
-            exit 1
-          fi
-
       - name: Clean up workspace
         run: |
           echo "🗑️ Cleaning up workspace..."
-          rm -rf $GITHUB_WORKSPACE
+          sudo rm -rf $GITHUB_WORKSPACE
           echo "✅ Workspace cleaned!"
