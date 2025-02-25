@@ -121,3 +121,21 @@ jobs:
           )
 
           echo "GitHub Check Run Response: $RESPONSE"
+
+      - name: Cleanup SonarQube Analysis
+        run: |
+          SONAR_PROJECT_KEY="nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983"
+          SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
+          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+
+          echo "🔍 Fetching analysis ID for cleanup..."
+          ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
+          ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
+
+          if [[ -n "$ANALYSIS_ID" && "$ANALYSIS_ID" != "null" ]]; then
+            echo "🗑️ Deleting analysis ID: $ANALYSIS_ID..."
+            DELETE_RESPONSE=$(curl -s -X POST -u $SONAR_TOKEN: "$SONAR_HOST/api/project_analyses/delete?analysis=$ANALYSIS_ID")
+            echo "✅ Analysis deleted successfully!"
+          else
+            echo "⚠️ No analysis ID found. Skipping cleanup."
+          fi
