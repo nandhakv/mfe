@@ -121,81 +121,35 @@ jobs:
 
           echo ":white_check_mark: SonarQube report generated successfully for $TARGET_FILE."
 
-      - name: Check for Existing Check Run
-        id: check_existing
+      - name: Create GitHub Check Run
         run: |
           GITHUB_REPO="${{ github.repository }}"
           GITHUB_SHA="${{ github.sha }}"
           GITHUB_TOKEN="${{ github.event.inputs.github_token }}"
 
-          echo "🔍 Checking for existing SonarQube check runs..."
-          EXISTING_CHECK_RUNS=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GITHUB_REPO/commits/$GITHUB_SHA/check-runs" | jq '.check_runs[] | select(.name=="SonarQube Analysis")')
-
-          if [[ -n "$EXISTING_CHECK_RUNS" ]]; then
-            echo "⚠️ SonarQube Check Run already exists. Skipping duplicate creation."
-            echo "exists=true" >> $GITHUB_ENV
-          else
-            echo "✅ No existing SonarQube check runs found."
-            echo "exists=false" >> $GITHUB_ENV
-          fi
-
-      - name: Create or Update GitHub Check Run
-        run: |
-          GITHUB_REPO="${{ github.repository }}"
-          GITHUB_SHA="${{ github.sha }}"
-          GITHUB_TOKEN="${{ github.event.inputs.github_token }}"
-          CHECK_NAME="SonarQube Analysis"
-
-          echo "🔍 Checking for existing check run..."
-          RESPONSE=$(curl -s -X GET "https://api.github.com/repos/$GITHUB_REPO/commits/$GITHUB_SHA/check-runs" \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN")
-
-          CHECK_ID=$(echo "$RESPONSE" | jq -r --arg NAME "$CHECK_NAME" '.check_runs[] | select(.name == $NAME) | .id')
+          echo "Creating a GitHub Check Run to notify the GitHub App..."
 
           SONAR_REPORT=$(jq -c . sonar_report.json | jq -Rs .)
 
-          if [[ -n "$CHECK_ID" && "$CHECK_ID" != "null" ]]; then
-            echo "🔄 Updating existing SonarQube Check Run (ID: $CHECK_ID)..."
-            curl -s -X PATCH "https://api.github.com/repos/$GITHUB_REPO/check-runs/$CHECK_ID" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -d @- <<EOF
-            {
-              "name": "$CHECK_NAME",
-              "head_sha": "$GITHUB_SHA",
-              "status": "completed",
-              "conclusion": "success",
-              "output": {
-                "title": "SonarQube Analysis Report",
-                "summary": "Updated SonarQube analysis results.",
-                "text": $SONAR_REPORT
-              }
+          RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$GITHUB_REPO/check-runs" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -d @- <<EOF
+          {
+            "name": "SonarQube Analysis",
+            "head_sha": "$GITHUB_SHA",
+            "status": "completed",
+            "conclusion": "success",
+            "output": {
+              "title": "SonarQube Analysis Report",
+              "summary": "The SonarQube analysis has completed. Click below to view details.",
+              "text": $SONAR_REPORT
             }
-            EOF
-            echo "✅ SonarQube Check Run updated."
-          else
-            echo "🚀 Creating new SonarQube Check Run..."
-            curl -s -X POST "https://api.github.com/repos/$GITHUB_REPO/check-runs" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -d @- <<EOF
-            {
-              "name": "$CHECK_NAME",
-              "head_sha": "$GITHUB_SHA",
-              "status": "completed",
-              "conclusion": "success",
-              "output": {
-                "title": "SonarQube Analysis Report",
-                "summary": "The SonarQube analysis has completed.",
-                "text": $SONAR_REPORT
-              }
-            }
-            EOF
-            echo "✅ SonarQube Check Run created."
-          fi
+          }
+          EOF
+          )
+
+          echo "GitHub Check Run Response: $RESPONSE"
 
       - name: Delete SonarQube Project
         run: |
