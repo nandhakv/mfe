@@ -91,11 +91,14 @@ jobs:
 
           echo "Creating a GitHub Check Run to notify the GitHub App..."
 
-          SONAR_REPORT="{\"status\": \"success\", \"message\": \"SonarQube analysis completed successfully.\"}"
+          # Properly format the SonarQube report
+          SONAR_REPORT=$(jq -n --arg status "success" --arg message "SonarQube analysis completed successfully." \
+            '{status: $status, message: $message}' | jq -Rs .)
 
           RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$GITHUB_REPO/check-runs" \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
             -d @- <<EOF
           {
             "name": "SonarQube Analysis",
@@ -105,7 +108,7 @@ jobs:
             "output": {
               "title": "SonarQube Analysis Report",
               "summary": "The SonarQube analysis has completed. Click below to view details.",
-              "text": "$SONAR_REPORT"
+              "text": $SONAR_REPORT
             }
           }
           EOF
