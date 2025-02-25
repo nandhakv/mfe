@@ -13,6 +13,12 @@ on:
       github_token:
         description: "GitHub Token from trigger request"
         required: true
+      sonarqube_host:
+        description: "SonarQube Host URL"
+        required: true
+      sonarqube_token:
+        description: "SonarQube Token"
+        required: true
 
 jobs:
   sonar:
@@ -30,11 +36,6 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Configure Git (Fix Missing Blame Info)
-        run: |
-          git config --global user.email "you@example.com"
-          git config --global user.name "Your Name"
-
       - name: Set Unique Project Key
         run: |
           TIMESTAMP=$(date +%s)
@@ -45,16 +46,16 @@ jobs:
       - name: Create SonarQube Project
         run: |
           echo "🚀 Creating new SonarQube project: $SONAR_PROJECT_KEY..."
-          curl -s -X POST -u "squ_6727287fb92d5482177acbc7f816ef5bffddbd08:" \
-            "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com/api/projects/create" \
+          curl -s -X POST -u "${{ github.event.inputs.sonarqube_token }}:" \
+            "${{ github.event.inputs.sonarqube_host }}/api/projects/create" \
             -d "name=$SONAR_PROJECT_KEY&project=$SONAR_PROJECT_KEY"
           echo "✅ SonarQube project created."
 
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
         env:
-          SONAR_TOKEN: "squ_3edfa90db17cdd003e434da9a4e28de549a83595"
-          SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+          SONAR_TOKEN: "${{ github.event.inputs.sonarqube_token }}"
+          SONAR_HOST_URL: "${{ github.event.inputs.sonarqube_host }}"
         with:
           args: >
             -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
@@ -65,9 +66,9 @@ jobs:
       - name: Get SonarQube Report for Specific File
         run: |
           SONAR_PROJECT_KEY="${{ env.SONAR_PROJECT_KEY }}"
-          SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
-          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
-          TARGET_FILE="${{ github.event.inputs.files }}"  # File passed in the workflow
+          SONAR_TOKEN="${{ github.event.inputs.sonarqube_token }}"
+          SONAR_HOST="${{ github.event.inputs.sonarqube_host }}"
+          TARGET_FILE="${{ github.event.inputs.files }}"
 
           echo ":mag: Verifying SonarQube authentication..."
           AUTH_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/authentication/validate")
@@ -115,7 +116,6 @@ jobs:
           echo ":mag: Fetching issues for file: $TARGET_FILE..."
           FILE_ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?componentKeys=$SONAR_PROJECT_KEY:$TARGET_FILE")
 
-          # Ensure valid JSON format in sonar_report.json
           jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$FILE_ISSUES_RESPONSE" \
             '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
 
@@ -154,41 +154,10 @@ jobs:
       - name: Delete SonarQube Project
         run: |
           SONAR_PROJECT_KEY="${{ env.SONAR_PROJECT_KEY }}"
-          SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
-          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+          SONAR_TOKEN="${{ github.event.inputs.sonarqube_token }}"
+          SONAR_HOST="${{ github.event.inputs.sonarqube_host }}"
 
           echo ":wastebasket: Deleting SonarQube project: $SONAR_PROJECT_KEY..."
-
-          # Verify the project exists before trying to delete
-          PROJECT_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/projects/search?projects=$SONAR_PROJECT_KEY")
-          PROJECT_EXISTS=$(echo "$PROJECT_RESPONSE" | jq -r '.components | length')
-
-          if [[ "$PROJECT_EXISTS" -eq 0 ]]; then
-            echo ":warning: WARNING: SonarQube project '$SONAR_PROJECT_KEY' does not exist. Skipping deletion."
-            exit 0
-          fi
-
-          # Check if the project has active background tasks
-          TASKS_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/ce/activity?component=$SONAR_PROJECT_KEY")
-          PENDING_TASKS=$(echo "$TASKS_RESPONSE" | jq -r '[.tasks[] | select(.status=="PENDING" or .status=="IN_PROGRESS")] | length')
-
-          if [[ "$PENDING_TASKS" -gt 0 ]]; then
-            echo ":hourglass_flowing_sand: SonarQube project has active background tasks. Waiting for completion..."
-            for i in {1..10}; do
-              TASKS_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/ce/activity?component=$SONAR_PROJECT_KEY")
-              PENDING_TASKS=$(echo "$TASKS_RESPONSE" | jq -r '[.tasks[] | select(.status=="PENDING" or .status=="IN_PROGRESS")] | length')
-
-              if [[ "$PENDING_TASKS" -eq 0 ]]; then
-                echo ":white_check_mark: All background tasks completed. Proceeding with deletion."
-                break
-              fi
-
-              echo ":hourglass_flowing_sand: Tasks still running. Retrying in 10 seconds..."
-              sleep 10
-            done
-          fi
-
-          # Delete the project
           DELETE_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST -u "$SONAR_TOKEN:" "$SONAR_HOST/api/projects/delete?project=$SONAR_PROJECT_KEY")
 
           if [[ "$DELETE_RESPONSE" -eq 204 ]]; then
