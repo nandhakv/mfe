@@ -58,7 +58,7 @@ jobs:
         with:
           args: >
             -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
-            -Dsonar.sources=${{ github.event.inputs.files }}
+            -Dsonar.sources=$(dirname ${{ github.event.inputs.files }})
             -Dsonar.inclusions=${{ github.event.inputs.files }}
             -Dsonar.exclusions=**/*
             -Dsonar.scm.provider=git
