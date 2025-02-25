@@ -62,11 +62,12 @@ jobs:
             -Dsonar.inclusions=${{ github.event.inputs.files }}
             -Dsonar.scm.provider=git
 
-      - name: Get SonarQube Report & Issues
+      - name: Get SonarQube Report for Specific File
         run: |
           SONAR_PROJECT_KEY="${{ env.SONAR_PROJECT_KEY }}"
           SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+          TARGET_FILE="${{ github.event.inputs.files }}"  # File passed in the workflow
 
           echo "🔍 Verifying SonarQube authentication..."
           AUTH_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/authentication/validate")
@@ -111,14 +112,14 @@ jobs:
 
           ERRORS=$(echo "$REPORT_RESPONSE" | jq -c '[.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}]')
 
-          echo "🔍 Fetching issues for Analysis ID: $ANALYSIS_ID..."
-          ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?analysisId=$ANALYSIS_ID")
+          echo "🔍 Fetching issues for file: $TARGET_FILE..."
+          FILE_ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?componentKeys=$SONAR_PROJECT_KEY:$TARGET_FILE")
 
           # Ensure valid JSON format in sonar_report.json
-          jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
+          jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$FILE_ISSUES_RESPONSE" \
             '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
 
-          echo "✅ SonarQube report generated successfully."
+          echo "✅ SonarQube report generated successfully for $TARGET_FILE."
 
       - name: Create GitHub Check Run
         run: |
