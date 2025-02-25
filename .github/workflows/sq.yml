@@ -35,13 +35,20 @@ jobs:
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
 
-      - name: Set FILES variable
+      - name: Set Unique Project Key
         run: |
-          if [ -z "${{ github.event.inputs.files }}" ]; then
-            echo "FILES=src/index.js" >> $GITHUB_ENV
-          else
-            echo "FILES=${{ github.event.inputs.files }}" >> $GITHUB_ENV
-          fi
+          TIMESTAMP=$(date +%s)
+          UNIQUE_PROJECT_KEY="nandhakv_mfe_${TIMESTAMP}"
+          echo "SONAR_PROJECT_KEY=$UNIQUE_PROJECT_KEY" >> $GITHUB_ENV
+          echo "Using SonarQube Project Key: $UNIQUE_PROJECT_KEY"
+
+      - name: Create SonarQube Project
+        run: |
+          echo "🚀 Creating new SonarQube project: $SONAR_PROJECT_KEY..."
+          curl -s -X POST -u "squ_3edfa90db17cdd003e434da9a4e28de549a83595:" \
+            "$SONAR_HOST/api/projects/create" \
+            -d "name=$SONAR_PROJECT_KEY&project=$SONAR_PROJECT_KEY"
+          echo "✅ SonarQube project created."
 
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
@@ -50,30 +57,17 @@ jobs:
           SONAR_HOST_URL: "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
         with:
           args: >
-            -Dsonar.projectKey=nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983
-            -Dsonar.sources=${{ env.FILES }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.sources=${{ github.event.inputs.files }}
             -Dsonar.scm.provider=git
 
       - name: Get SonarQube Report & Issues
         run: |
-          SONAR_PROJECT_KEY="nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983"
-          SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
 
-          echo "🔍 Fetching analysis ID..."
-          ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
-          ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
-
-          if [[ -z "$ANALYSIS_ID" || "$ANALYSIS_ID" == "null" ]]; then
-            echo "❌ ERROR: Failed to get analysis ID."
-            exit 1
-          fi
-
-          echo "✅ Found Analysis ID: $ANALYSIS_ID"
-
           echo "🔍 Fetching quality gate status..."
-          REPORT_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
-          STATUS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.status')
+          ANALYSIS_RESPONSE=$(curl -s -u "$SONAR_TOKEN:" "$SONAR_HOST/api/qualitygates/project_status?projectKey=$SONAR_PROJECT_KEY")
+          STATUS=$(echo "$ANALYSIS_RESPONSE" | jq -r '.projectStatus.status')
 
           if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
             echo "❌ ERROR: Failed to get quality gate status."
@@ -81,17 +75,9 @@ jobs:
           fi
 
           echo "✅ SonarQube Status: $STATUS"
+          echo "{\"status\": \"$STATUS\"}" > sonar_report.json
 
-          ERRORS=$(echo "$REPORT_RESPONSE" | jq -c '[.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}]')
-
-          echo "🔍 Fetching issues for Analysis ID: $ANALYSIS_ID..."
-          ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?analysisId=$ANALYSIS_ID")
-
-          # Ensure valid JSON format in sonar_report.json
-          jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
-            '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
-
-      - name: Create GitHub Check Run (Triggers GitHub App Webhook)
+      - name: Create GitHub Check Run
         run: |
           GITHUB_REPO="${{ github.repository }}"
           GITHUB_SHA="${{ github.sha }}"
@@ -99,7 +85,6 @@ jobs:
 
           echo "Creating a GitHub Check Run to notify the GitHub App..."
 
-          # Properly format the JSON report to escape special characters
           SONAR_REPORT=$(jq -c . sonar_report.json | jq -Rs .)
 
           RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$GITHUB_REPO/check-runs" \
@@ -122,25 +107,14 @@ jobs:
 
           echo "GitHub Check Run Response: $RESPONSE"
 
-      - name: Delete All SonarQube Analyses
+      - name: Delete SonarQube Project
         run: |
-          SONAR_PROJECT_KEY="nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983"
-          SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
-          SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
+          echo "🗑️ Deleting SonarQube project: $SONAR_PROJECT_KEY..."
+          curl -s -X POST -u "$SONAR_TOKEN:" "$SONAR_HOST/api/projects/delete?project=$SONAR_PROJECT_KEY"
+          echo "✅ SonarQube project deleted successfully!"
 
-          echo "🔍 Fetching all past analysis IDs for project: $SONAR_PROJECT_KEY..."
-          ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/project_analyses/search?project=$SONAR_PROJECT_KEY")
-          ANALYSIS_IDS=$(echo "$ANALYSIS_RESPONSE" | jq -r '.analyses[].key')
-
-          if [[ -z "$ANALYSIS_IDS" ]]; then
-            echo "✅ No previous analyses found to delete."
-            exit 0
-          fi
-
-          for ANALYSIS_ID in $ANALYSIS_IDS; do
-            echo "🗑️ Deleting analysis ID: $ANALYSIS_ID..."
-            DELETE_RESPONSE=$(curl -s -X POST -u $SONAR_TOKEN: "$SONAR_HOST/api/project_analyses/delete?analysis=$ANALYSIS_ID")
-            echo "✅ Deleted analysis ID: $ANALYSIS_ID"
-          done
-
-          echo "✅ All project analyses deleted successfully!"
+      - name: Clean up workspace
+        run: |
+          echo "🗑️ Cleaning up workspace..."
+          rm -rf $GITHUB_WORKSPACE
+          echo "✅ Workspace cleaned!"
