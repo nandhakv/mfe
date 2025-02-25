@@ -10,12 +10,6 @@ on:
         description: "Branch to run the analysis on"
         required: true
         default: "master"
-      github_token:
-        description: "GitHub Token from triggering request"
-        required: true
-      app_id:
-        description: "GitHub App ID"
-        required: true
 
 jobs:
   sonar:
@@ -25,21 +19,26 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0
+          fetch-depth: 0 # Fixes shallow clone issue for SonarQube
 
-      - name: Set up JDK 17
+      - name: Set up JDK 17 # SonarQube requires Java
         uses: actions/setup-java@v3
         with:
           java-version: "17"
           distribution: "temurin"
 
-      - name: Configure Git
+      - name: Configure Git (Fix Missing Blame Info)
         run: |
           git config --global user.email "you@example.com"
           git config --global user.name "Your Name"
 
-      - name: Mask GitHub Token
-        run: echo "::add-mask::${{ github.event.inputs.github_token }}"
+      - name: Set FILES variable
+        run: |
+          if [ -z "${{ github.event.inputs.files }}" ]; then
+            echo "FILES=src/index.js" >> $GITHUB_ENV
+          else
+            echo "FILES=${{ github.event.inputs.files }}" >> $GITHUB_ENV
+          fi
 
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
@@ -49,7 +48,7 @@ jobs:
         with:
           args: >
             -Dsonar.projectKey=nandhakv_mfe_f6846554-c846-4374-8d0c-f9459c1dc983
-            -Dsonar.sources=src/
+            -Dsonar.sources=${{ env.FILES }}
             -Dsonar.scm.provider=git
 
       - name: Get SonarQube Report & Issues
@@ -91,26 +90,14 @@ jobs:
 
           echo "📄 Issues Response: $ISSUES_RESPONSE"
 
+          # Ensure valid JSON format in sonar_report.json
           jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
             '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
 
-      - name: Post SonarQube Report as GitHub Issue
+      - name: Send Report to Node.js Webhook
         run: |
-          REPO=${{ github.repository }}
-          TITLE="SonarQube Report for ${{ github.event.inputs.branch }}"
-          BODY=$(jq -r '. | tojson' sonar_report.json)
+          WEBHOOK_URL="https://hkdk.events/l6nci7bf5quk8c"
 
-          echo "Creating GitHub issue with SonarQube report..."
-          RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$REPO/issues" \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ github.event.inputs.github_token }}" \
-            -d "{\"title\": \"$TITLE\", \"body\": \"\`\`\`json\n$BODY\n\`\`\`\"}")
-
-          ISSUE_URL=$(echo "$RESPONSE" | jq -r '.html_url')
-
-          if [[ -z "$ISSUE_URL" || "$ISSUE_URL" == "null" ]]; then
-            echo "❌ ERROR: Failed to create issue."
-            exit 1
-          fi
-
-          echo "✅ SonarQube Report posted: $ISSUE_URL"
+          curl -X POST "$WEBHOOK_URL" \
+               -H "Content-Type: application/json" \
+               -d @sonar_report.json
