@@ -95,12 +95,16 @@ jobs:
         run: |
           GITHUB_REPO="${{ github.repository }}"
           GITHUB_SHA="${{ github.sha }}"
+          GITHUB_TOKEN="${{ github.event.inputs.github_token }}"
 
           echo "Creating a GitHub Check Run to notify the GitHub App..."
 
+          # Properly format the JSON report to escape special characters
+          SONAR_REPORT=$(jq -c . sonar_report.json | jq -Rs .)
+
           RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$GITHUB_REPO/check-runs" \
             -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: Bearer ${{ github.event.inputs.github_token }}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
             -d @- <<EOF
           {
             "name": "SonarQube Analysis",
@@ -110,7 +114,7 @@ jobs:
             "output": {
               "title": "SonarQube Analysis Report",
               "summary": "The SonarQube analysis has completed. Click below to view details.",
-              "text": "$(jq -c . sonar_report.json | tr -d '\n')"
+              "text": $SONAR_REPORT
             }
           }
           EOF
