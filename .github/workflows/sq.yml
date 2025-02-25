@@ -197,9 +197,3 @@ jobs:
             echo ":x: ERROR: Failed to delete SonarQube project. HTTP Response: $DELETE_RESPONSE"
             exit 1
           fi
-
-      - name: Clean up workspace safely
-        run: |
-          echo "🗑️ Cleaning up workspace..."
-          find $GITHUB_WORKSPACE -mindepth 1 -not -name ".git" -not -name ".github" -exec rm -rf {} +
-          echo "✅ Workspace cleaned!"
