@@ -45,8 +45,8 @@ jobs:
       - name: Create SonarQube Project
         run: |
           echo "🚀 Creating new SonarQube project: $SONAR_PROJECT_KEY..."
-          curl -s -X POST -u "squ_3edfa90db17cdd003e434da9a4e28de549a83595:" \
-            "$SONAR_HOST/api/projects/create" \
+          curl -s -X POST -u "squ_6727287fb92d5482177acbc7f816ef5bffddbd08:" \
+            "http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com/api/projects/create" \
             -d "name=$SONAR_PROJECT_KEY&project=$SONAR_PROJECT_KEY"
           echo "✅ SonarQube project created."
 
