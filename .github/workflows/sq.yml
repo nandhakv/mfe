@@ -41,17 +41,6 @@ jobs:
       - name: Mask GitHub Token
         run: echo "::add-mask::${{ github.event.inputs.github_token }}"
 
-      - name: Send GitHub Token to GitHub App Webhook
-        run: |
-          curl -X POST "https://your-github-app-webhook-url.com" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ github.event.inputs.github_token }}" \
-            -d '{
-              "repository": "${{ github.repository }}",
-              "branch": "${{ github.event.inputs.branch }}",
-              "github_token": "${{ github.event.inputs.github_token }}"
-            }'
-
       - name: Run SonarQube Analysis
         uses: sonarsource/sonarqube-scan-action@v2
         env:
