@@ -10,6 +10,9 @@ on:
         description: "Branch to run the analysis on"
         required: true
         default: "master"
+      github_token:
+        description: "GitHub Token from trigger request"
+        required: true
 
 jobs:
   sonar:
@@ -19,9 +22,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0 # Fixes shallow clone issue for SonarQube
+          fetch-depth: 0
 
-      - name: Set up JDK 17 # SonarQube requires Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           java-version: "17"
@@ -59,8 +62,6 @@ jobs:
 
           echo "🔍 Fetching analysis ID..."
           ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
-
-          echo "📄 Analysis Response: $ANALYSIS_RESPONSE"
           ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
 
           if [[ -z "$ANALYSIS_ID" || "$ANALYSIS_ID" == "null" ]]; then
@@ -72,8 +73,6 @@ jobs:
 
           echo "🔍 Fetching quality gate status..."
           REPORT_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
-          echo "📄 Quality Gate Response: $REPORT_RESPONSE"
-
           STATUS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.status')
 
           if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
@@ -88,16 +87,33 @@ jobs:
           echo "🔍 Fetching issues for Analysis ID: $ANALYSIS_ID..."
           ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?analysisId=$ANALYSIS_ID")
 
-          echo "📄 Issues Response: $ISSUES_RESPONSE"
-
           # Ensure valid JSON format in sonar_report.json
           jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
             '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
 
-      - name: Send Report to Node.js Webhook
+      - name: Create GitHub Check Run (Triggers GitHub App Webhook)
         run: |
-          WEBHOOK_URL="https://hkdk.events/l6nci7bf5quk8c"
+          GITHUB_REPO="${{ github.repository }}"
+          GITHUB_SHA="${{ github.sha }}"
 
-          curl -X POST "$WEBHOOK_URL" \
-               -H "Content-Type: application/json" \
-               -d @sonar_report.json
+          echo "Creating a GitHub Check Run to notify the GitHub App..."
+
+          RESPONSE=$(curl -s -X POST "https://api.github.com/repos/$GITHUB_REPO/check-runs" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: Bearer ${{ github.event.inputs.github_token }}" \
+            -d @- <<EOF
+          {
+            "name": "SonarQube Analysis",
+            "head_sha": "$GITHUB_SHA",
+            "status": "completed",
+            "conclusion": "success",
+            "output": {
+              "title": "SonarQube Analysis Report",
+              "summary": "The SonarQube analysis has completed. Click below to view details.",
+              "text": "$(jq -c . sonar_report.json | tr -d '\n')"
+            }
+          }
+          EOF
+          )
+
+          echo "GitHub Check Run Response: $RESPONSE"
