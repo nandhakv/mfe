@@ -67,36 +67,57 @@ jobs:
           SONAR_TOKEN="squ_3edfa90db17cdd003e434da9a4e28de549a83595"
           SONAR_HOST="http://sonarqube-alb-1277571580.us-east-1.elb.amazonaws.com"
 
-          echo ":mag: Fetching analysis ID..."
-          ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
-          ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
+          echo "🔍 Verifying SonarQube authentication..."
+          AUTH_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/authentication/validate")
+          AUTH_STATUS=$(echo "$AUTH_RESPONSE" | jq -r '.valid')
+
+          if [[ "$AUTH_STATUS" != "true" ]]; then
+            echo "❌ ERROR: Invalid SonarQube token or authentication failed."
+            exit 1
+          fi
+          echo "✅ Authentication successful."
+
+          echo "🔍 Fetching analysis ID for project: $SONAR_PROJECT_KEY..."
+
+          for i in {1..10}; do
+            ANALYSIS_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/ce/component?component=$SONAR_PROJECT_KEY")
+            ANALYSIS_ID=$(echo "$ANALYSIS_RESPONSE" | jq -r '.current.analysisId')
+
+            if [[ -n "$ANALYSIS_ID" && "$ANALYSIS_ID" != "null" ]]; then
+              echo "✅ Found Analysis ID: $ANALYSIS_ID"
+              break
+            fi
+
+            echo "⏳ Analysis not ready yet. Retrying in 10 seconds..."
+            sleep 10
+          done
 
           if [[ -z "$ANALYSIS_ID" || "$ANALYSIS_ID" == "null" ]]; then
-            echo ":x: ERROR: Failed to get analysis ID."
+            echo "❌ ERROR: Failed to get analysis ID after multiple attempts."
             exit 1
           fi
 
-          echo ":white_check_mark: Found Analysis ID: $ANALYSIS_ID"
-
-          echo ":mag: Fetching quality gate status..."
+          echo "🔍 Fetching quality gate status..."
           REPORT_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
           STATUS=$(echo "$REPORT_RESPONSE" | jq -r '.projectStatus.status')
 
           if [[ -z "$STATUS" || "$STATUS" == "null" ]]; then
-            echo ":x: ERROR: Failed to get quality gate status."
+            echo "❌ ERROR: Failed to get quality gate status."
             exit 1
           fi
 
-          echo ":white_check_mark: SonarQube Status: $STATUS"
+          echo "✅ SonarQube Status: $STATUS"
 
           ERRORS=$(echo "$REPORT_RESPONSE" | jq -c '[.projectStatus.conditions[] | select(.status=="ERROR") | {metric: .metricKey, value: .actualValue, threshold: .errorThreshold}]')
 
-          echo ":mag: Fetching issues for Analysis ID: $ANALYSIS_ID..."
+          echo "🔍 Fetching issues for Analysis ID: $ANALYSIS_ID..."
           ISSUES_RESPONSE=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST/api/issues/search?analysisId=$ANALYSIS_ID")
 
           # Ensure valid JSON format in sonar_report.json
           jq -n --arg status "$STATUS" --argjson errors "$ERRORS" --argjson issues "$ISSUES_RESPONSE" \
             '{status: $status, errors: $errors, issues: $issues}' > sonar_report.json
+
+          echo "✅ SonarQube report generated successfully."
 
       - name: Create GitHub Check Run
         run: |
