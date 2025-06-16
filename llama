@@ -1,0 +1,54 @@
+import os
+from sentence_transformers import SentenceTransformer
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from llama_index.readers.file import PDFReader, DocxReader
+
+# Disable LLM usage
+Settings.llm = None
+
+COLLECTION_NAME = "kb_documents"
+LOCAL_MODEL_PATH = "./local_models/all-MiniLM-L6-v2"
+
+# Load embedding dimension via SentenceTransformer
+sbert_model = SentenceTransformer(LOCAL_MODEL_PATH)
+embedding_size = sbert_model.get_sentence_embedding_dimension()
+
+# HuggingFace Embedding wrapper
+embed_model = HuggingFaceEmbedding(
+    model_name=LOCAL_MODEL_PATH,
+    cache_folder=LOCAL_MODEL_PATH,
+    trust_remote_code=False
+)
+
+# Qdrant setup
+qdrant = QdrantClient(url="http://localhost:6333")
+
+if not qdrant.collection_exists(COLLECTION_NAME):
+    qdrant.recreate_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config={"size": embedding_size, "distance": "Cosine"},
+    )
+
+# Qdrant vector store
+vector_store = QdrantVectorStore(client=qdrant, collection_name=COLLECTION_NAME)
+
+def load_document(file_path: str, extension: str):
+    if extension == "pdf":
+        loader = PDFReader()
+        return loader.load_data(file_path=file_path)
+    elif extension == "docx":
+        loader = DocxReader()
+        return loader.load_data(file_path=file_path)
+    else:
+        loader = SimpleDirectoryReader(input_files=[file_path])
+        return loader.load_data()
+
+def index_document(docs):
+    parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+    nodes = parser.get_nodes_from_documents(docs)
+    index = VectorStoreIndex(nodes, embed_model=embed_model, vector_store=vector_store)
+    return index
