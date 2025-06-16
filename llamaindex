@@ -1,0 +1,91 @@
+import streamlit as st
+import os
+import tempfile
+
+from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, Settings
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.vector_stores.qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
+from sentence_transformers import SentenceTransformer
+from llama_index.readers.file import PDFReader, DocxReader
+
+# Disable LLM usage
+Settings.llm = None
+
+# Constants
+COLLECTION_NAME = "kb_documents"
+
+# Load local embedding model
+LOCAL_MODEL_PATH = "./local_models/all-MiniLM-L6-v2"
+
+# Load model via sentence-transformers to get dimension
+sbert_model = SentenceTransformer(LOCAL_MODEL_PATH)
+embedding_size = sbert_model.get_sentence_embedding_dimension()
+
+# Create HuggingFaceEmbedding from model path
+embed_model = HuggingFaceEmbedding(
+    model_name=LOCAL_MODEL_PATH,
+    cache_folder=LOCAL_MODEL_PATH,
+    trust_remote_code=False
+)
+
+# Connect to local Qdrant
+qdrant = QdrantClient(url="http://localhost:6333")
+
+# Create collection if not exists
+if not qdrant.collection_exists(COLLECTION_NAME):
+    qdrant.recreate_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config={
+            "size": embedding_size,
+            "distance": "Cosine"
+        },
+    )
+# Set up vector store
+vector_store = QdrantVectorStore(client=qdrant, collection_name=COLLECTION_NAME)
+
+# UI
+st.title("📚 Upload and Index Document (Offline Retrieval Mode)")
+
+uploaded_file = st.file_uploader("Upload a document", type=["txt", "pdf", "docx"])
+
+if uploaded_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        temp_path = tmp_file.name
+
+    st.success(f"Processing '{uploaded_file.name}'...")
+
+    # Select appropriate reader based on file extension
+    file_ext = uploaded_file.name.split(".")[-1].lower()
+
+    if file_ext == "pdf":
+        loader = PDFReader()
+        docs = SimpleDirectoryReader(input_files=[temp_path]).load_data()
+    elif file_ext == "docx":
+        loader = DocxReader()
+        docs = loader.load_data(file=uploaded_file)
+    else:
+        loader = SimpleDirectoryReader(input_files=[temp_path])
+        docs = loader.load_data()
+
+    # Optional preview
+    st.markdown("### 📄 Preview of Extracted Text")
+    st.write(docs[0].text[:1000])  # First 1000 characters
+
+    # Parse and build index
+    parser = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+    nodes = parser.get_nodes_from_documents(docs)
+
+    index = VectorStoreIndex(nodes, embed_model=embed_model, vector_store=vector_store)
+
+    st.success(f"✅ Document '{uploaded_file.name}' indexed successfully!")
+
+    # Query Interface
+    query = st.text_input("Ask something about your document:")
+    if query:
+        engine = index.as_query_engine()
+        response = engine.query(query)
+        st.markdown("### 🧠 Response")
+        st.write(response.response)
